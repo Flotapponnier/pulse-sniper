@@ -18,27 +18,31 @@ async function main(): Promise<void> {
       maxDevHoldings: config.maxDevHoldings,
       maxSnipersHoldings: config.maxSnipersHoldings,
       maxTop10Holdings: config.maxTop10Holdings,
-      maxBuyTax: config.maxBuyTax,
-      maxSellTax: config.maxSellTax,
     },
   });
 
-  pulse.on('new', (payload) => {
-    const t = payload?.token;
-    if (!t?.address || !t?.chainId) return;
-    if (seen.alreadySeen(t.chainId, t.address)) return;
-    seen.markSeen(t.chainId, t.address);
+  // Snapshots (init / sync) prime dedup state so we don't alert on already-known
+  // tokens, but never trigger a Telegram message themselves.
+  pulse.on('snapshot', (token) => {
+    if (!token?.address || !token?.chainId) return;
+    seen.markSeen(token.chainId, token.address);
+  });
 
-    const verdict = evaluate(payload);
+  pulse.on('new', (token) => {
+    if (!token?.address || !token?.chainId) return;
+    if (seen.alreadySeen(token.chainId, token.address)) return;
+    seen.markSeen(token.chainId, token.address);
+
+    const verdict = evaluate(token);
     if (!verdict.ok) {
-      logger.debug({ reason: verdict.reason, symbol: t.symbol }, 'token rejected');
+      logger.debug({ reason: verdict.reason, symbol: token.symbol }, 'token rejected');
       return;
     }
     logger.info(
-      { symbol: t.symbol, chain: t.chainId, score: verdict.score },
+      { symbol: token.symbol, chain: token.chainId, score: verdict.score },
       'qualifying token, alerting',
     );
-    void pushTokenAlert(payload, verdict.score);
+    void pushTokenAlert(token, verdict.score);
   });
 
   pulse.on('error', (err) => {

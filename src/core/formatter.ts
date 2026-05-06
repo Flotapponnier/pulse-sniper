@@ -1,9 +1,8 @@
 import type { InlineKeyboardButton } from 'telegraf/types';
-import type { PulseTokenData } from './types.js';
+import type { PulseTokenRow } from './types.js';
 
 const MDV2_SPECIALS = /([_*\[\]()~`>#+\-=|{}.!\\])/g;
 
-/** Escape MarkdownV2 reserved characters per Telegram Bot API spec. */
 export function escapeMd(input: string | number | null | undefined): string {
   if (input === null || input === undefined) return '';
   return String(input).replace(MDV2_SPECIALS, '\\$1');
@@ -61,8 +60,8 @@ function chartUrl(chainId: string, address: string): string {
   return `https://dexscreener.com/${dexscreenerChain(chainId)}/${address}`;
 }
 
-function buyUrl(payload: PulseTokenData): string {
-  const { chainId, address, source } = payload.token;
+function buyUrl(t: PulseTokenRow): string {
+  const { chainId, address, source } = t;
   if (chainId === 'solana:solana') {
     if (source === 'pumpfun' || source === 'pump.fun') {
       return `https://pump.fun/coin/${address}`;
@@ -82,10 +81,9 @@ function buyUrl(payload: PulseTokenData): string {
   return `https://app.uniswap.org/swap?outputCurrency=${address}${chainParam}`;
 }
 
-function buyLabel(payload: PulseTokenData): string {
-  const { chainId, source } = payload.token;
-  if (chainId === 'solana:solana') {
-    if (source === 'pumpfun' || source === 'pump.fun') return 'Trade on pump.fun';
+function buyLabel(t: PulseTokenRow): string {
+  if (t.chainId === 'solana:solana') {
+    if (t.source === 'pumpfun' || t.source === 'pump.fun') return 'Trade on pump.fun';
     return 'Swap on Jupiter';
   }
   return 'Swap on Uniswap';
@@ -102,10 +100,6 @@ function chainLabel(chainId: string): string {
   return chainId;
 }
 
-/**
- * Pad a string to a fixed visible length inside a fenced code block.
- * Inside ``` blocks Telegram renders monospace, so we get column alignment.
- */
 function pad(value: string, width: number): string {
   if (value.length >= width) return value;
   return value + ' '.repeat(width - value.length);
@@ -116,16 +110,8 @@ export interface FormattedAlert {
   buttons: InlineKeyboardButton[][];
 }
 
-/**
- * Build a MarkdownV2 alert message + inline keyboard for a qualifying token.
- * Designed to look clean without emojis: bold header, monospace metric block
- * with aligned columns, plain-text security row, contract on its own line.
- */
-export function formatAlert(payload: PulseTokenData, score: number): FormattedAlert {
-  const t = payload.token;
-  const sec = payload.security ?? {};
-  const socials = payload.socials ?? {};
-
+/** Build a MarkdownV2 alert + inline keyboard for a flat Pulse token row. */
+export function formatAlert(t: PulseTokenRow, score: number): FormattedAlert {
   const name = escapeMd(t.name ?? 'Unknown');
   const symbol = escapeMd(t.symbol ?? '???');
   const chain = escapeMd(chainLabel(t.chainId));
@@ -135,31 +121,18 @@ export function formatAlert(payload: PulseTokenData, score: number): FormattedAl
   const label = scoreLabel(score);
 
   const liq = fmtUsd(t.liquidity);
-  const mc = fmtUsd(payload.market_cap ?? t.marketCap);
-  const vol5 = fmtUsd(payload.volume_5min);
-  const trades5 = fmtNum(payload.trades_5min);
+  const mc = fmtUsd(t.marketCap ?? t.marketCapDiluted);
+  const bonding = fmtPct(t.bondingPercentage);
 
-  const dev = fmtPct(t.devHoldingsPercentage);
-  const snipers = fmtPct(t.snipersHoldingsPercentage);
-  const top10 = fmtPct(t.top10HoldingsPercentage);
+  const dev = fmtPct(t.devHoldings);
+  const snipers = fmtPct(t.snipersHoldings);
+  const top10 = fmtPct(t.top10Holdings);
 
-  const securityFlags: string[] = [];
-  if (sec.noMintAuthority) securityFlags.push('mint revoked');
-  if (sec.transferPausable === false) securityFlags.push('unpausable');
-  if ((sec.buyTax ?? 0) === 0 && (sec.sellTax ?? 0) === 0) {
-    securityFlags.push('0/0 tax');
-  } else {
-    securityFlags.push(`${sec.buyTax ?? 0}/${sec.sellTax ?? 0} tax`);
-  }
-  if (payload.dexscreenerListed) securityFlags.push('DS listed');
-
-  // Monospace metric block — perfect column alignment inside ``` fence.
-  // Note: inside a code block we do NOT escape MarkdownV2 specials.
   const metricBlock = [
-    `${pad('Liquidity', 10)} ${liq}`,
-    `${pad('Market cap', 10)} ${mc}`,
-    `${pad('Volume 5m', 10)} ${vol5}  (${trades5} trades)`,
-    `${pad('Holders', 10)} ${holders}`,
+    `${pad('Liquidity', 11)} ${liq}`,
+    `${pad('Market cap', 11)} ${mc}`,
+    `${pad('Bonding %', 11)} ${bonding}`,
+    `${pad('Holders', 11)} ${holders}`,
   ].join('\n');
 
   const lines: string[] = [];
@@ -174,20 +147,13 @@ export function formatAlert(payload: PulseTokenData, score: number): FormattedAl
   lines.push(
     `*Holdings* — dev ${escapeMd(dev)}  ·  snipers ${escapeMd(snipers)}  ·  top10 ${escapeMd(top10)}`,
   );
-  lines.push(`*Security* — ${escapeMd(securityFlags.join(' · '))}`);
   lines.push('');
   lines.push(`\`${escapeMd(t.address)}\``);
 
   const row1: InlineKeyboardButton[] = [
     { text: 'Chart', url: chartUrl(t.chainId, t.address) },
-    { text: buyLabel(payload), url: buyUrl(payload) },
+    { text: buyLabel(t), url: buyUrl(t) },
   ];
-  const row2: InlineKeyboardButton[] = [];
-  if (socials.twitter) row2.push({ text: 'Twitter', url: socials.twitter });
-  if (socials.telegram) row2.push({ text: 'Telegram', url: socials.telegram });
-  if (socials.website) row2.push({ text: 'Website', url: socials.website });
 
-  const buttons: InlineKeyboardButton[][] = row2.length > 0 ? [row1, row2] : [row1];
-
-  return { text: lines.join('\n'), buttons };
+  return { text: lines.join('\n'), buttons: [row1] };
 }

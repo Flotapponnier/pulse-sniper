@@ -1,68 +1,68 @@
 /**
- * Subset of the Pulse Stream V2 token payload that we actually consume.
- * Other fields exist on the wire but are ignored intentionally.
+ * Pulse Stream V2 — flat token row as it actually appears on the wire.
+ * Captured from a live `init` snapshot on solana:solana / pumpfun.
  */
-export interface PulseExchange {
-  name?: string | null;
-  logo?: string | null;
-}
-
-export interface PulseToken {
+export interface PulseTokenRow {
   address: string;
   chainId: string;
   symbol?: string | null;
   name?: string | null;
-  logo?: string | null;
   decimals?: number | null;
+  logo?: string | null;
+
   price?: number | null;
   marketCap?: number | null;
+  marketCapDiluted?: number | null;
+
   liquidity?: number | null;
+  liquidityMax?: number | null;
   bonded?: boolean | null;
   bondingPercentage?: number | null;
+
   poolAddress?: string | null;
   deployer?: string | null;
   createdAt?: string | number | Date | null;
+
   holdersCount?: number | null;
-  top10HoldingsPercentage?: number | null;
-  devHoldingsPercentage?: number | null;
-  snipersHoldingsPercentage?: number | null;
+
+  // holdings %
+  devHoldings?: number | null;
+  insidersHoldings?: number | null;
+  bundlersHoldings?: number | null;
+  snipersHoldings?: number | null;
+  proTradersHoldings?: number | null;
+  freshTradersHoldings?: number | null;
+  smartTradersHoldingsPercentage?: number | null;
+  lpHoldingsPercentage?: number | null;
+  contractHoldingsPercentage?: number | null;
+
+  top10Holdings?: number | null;
+  top50Holdings?: number | null;
+  top100Holdings?: number | null;
+  top200Holdings?: number | null;
+
+  // counts
+  snipersCount?: number | null;
+  insidersCount?: number | null;
+  bundlersCount?: number | null;
+  freshTradersCount?: number | null;
+  proTradersCount?: number | null;
+  smartTradersCount?: number | null;
+
   source?: string | null;
-  exchange?: PulseExchange | null;
-}
+  exchange?: { name?: string | null; logo?: string | null } | null;
+  sourceMetadata?: { name?: string | null; logo?: string | null } | null;
 
-export interface PulseSocials {
-  twitter?: string | null;
-  website?: string | null;
-  telegram?: string | null;
-}
+  trendingScore1min?: number | null;
+  trendingScore5min?: number | null;
+  trendingScore15min?: number | null;
+  trendingScore1h?: number | null;
 
-export interface PulseSecurity {
-  buyTax?: number | null;
-  sellTax?: number | null;
-  isBlacklisted?: boolean | null;
-  isHoneypot?: boolean | null;
-  noMintAuthority?: boolean | null;
-  transferPausable?: boolean | null;
-}
+  is_spam?: boolean | null;
+  spam_checked?: boolean | null;
 
-export interface PulseTokenData {
-  token: PulseToken;
-  latest_price?: number | null;
-  market_cap?: number | null;
-  volume_1min?: number | null;
-  volume_5min?: number | null;
-  trades_5min?: number | null;
-  buyers_5min?: number | null;
-  organic_trades_5min?: number | null;
-  socials?: PulseSocials | null;
-  security?: PulseSecurity | null;
-  dexscreenerListed?: boolean | null;
+  totalFeesPaidUSD?: number | null;
+  bonded_at?: string | null;
 }
 
 export type PulseEventType = 'init' | 'sync' | 'new-token' | 'update-token' | 'remove-token';
-
-export interface PulseTokenEvent {
-  type: PulseEventType;
-  view?: string;
-  data?: PulseTokenData | PulseTokenData[];
-}

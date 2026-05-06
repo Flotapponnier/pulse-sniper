@@ -1,11 +1,12 @@
 import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
 import { logger } from '../utils/logger.js';
-import type { PulseTokenData, PulseTokenEvent } from '../core/types.js';
+import type { PulseTokenRow } from '../core/types.js';
 
 const PULSE_URL = 'wss://api.mobula.io';
 const PING_INTERVAL_MS = 30_000;
 const MAX_BACKOFF_MS = 30_000;
+const VIEW_NAME = 'fresh-tokens';
 
 export interface PulseClientOptions {
   apiKey: string;
@@ -17,22 +18,24 @@ export interface PulseClientOptions {
     maxDevHoldings: number;
     maxSnipersHoldings: number;
     maxTop10Holdings: number;
-    maxBuyTax: number;
-    maxSellTax: number;
   };
 }
 
 type PulseClientEvents = {
-  new: (token: PulseTokenData) => void;
+  /** Fired for init / sync rows. Use to seed dedup state, not to alert. */
+  snapshot: (token: PulseTokenRow) => void;
+  /** Fired only for `new-token` events — i.e. tokens entering the view live. */
+  new: (token: PulseTokenRow) => void;
   open: () => void;
   close: () => void;
   error: (err: Error) => void;
 };
 
 /**
- * EventEmitter wrapper around the Mobula Pulse Stream V2 WebSocket.
- * Re-subscribes on every reconnect and emits "new" with the token payload
- * for any unique fresh-token row received via init / sync / new-token.
+ * Wraps the Mobula Pulse Stream V2 WebSocket. Re-subscribes on every
+ * reconnect and emits "new" with a flat token row for any unique token
+ * received via init / sync / new-token (update-token is intentionally
+ * ignored — we alert once when a token enters the view).
  */
 export class PulseClient extends EventEmitter {
   private ws: WebSocket | null = null;
@@ -139,26 +142,17 @@ export class PulseClient extends EventEmitter {
       payload: {
         assetMode: true,
         compressed: false,
-        chainId: chainIds,
-        poolTypes,
         views: [
           {
-            name: 'fresh-tokens',
+            name: VIEW_NAME,
+            chainId: chainIds,
+            poolTypes,
             sortBy: 'created_at',
             sortOrder: 'desc',
             limit: 50,
             filters: {
-              created_at_offset: { lte: filters.maxAgeSeconds },
               liquidity: { gte: filters.minLiquidityUsd },
               bonded: { equals: false },
-              dev_holdings_percentage: { lte: filters.maxDevHoldings },
-              snipers_holdings_percentage: { lte: filters.maxSnipersHoldings },
-              top_10_holdings_percentage: { lte: filters.maxTop10Holdings },
-              security: {
-                isBlacklisted: { equals: false },
-                buyTax: { lte: filters.maxBuyTax },
-                sellTax: { lte: filters.maxSellTax },
-              },
             },
           },
         ],
@@ -166,6 +160,24 @@ export class PulseClient extends EventEmitter {
     };
     this.ws?.send(JSON.stringify(payload));
     logger.info({ chains: chainIds.length, pools: poolTypes.length }, 'subscribed');
+  }
+
+  /**
+   * Mobula wire shapes seen in production:
+   *   init / sync       → { type, payload: { <viewName>: { data: [row, ...] } } }
+   *   new-token         → { type, payload: { viewName, token: {...} } }
+   *   update-token      → { type, payload: { viewName, token: {...} } }
+   *   remove-token      → { type, payload: { viewName, tokenKey } }
+   */
+  private extractFromSnapshot(payload: unknown): PulseTokenRow[] {
+    if (!payload || typeof payload !== 'object') return [];
+    const obj = payload as Record<string, unknown>;
+    const view = obj[VIEW_NAME] ?? obj.data;
+    if (Array.isArray(view)) return view as PulseTokenRow[];
+    if (view && typeof view === 'object' && Array.isArray((view as { data?: unknown }).data)) {
+      return (view as { data: PulseTokenRow[] }).data;
+    }
+    return [];
   }
 
   private handleMessage(raw: WebSocket.RawData): void {
@@ -178,26 +190,31 @@ export class PulseClient extends EventEmitter {
     }
     if (!parsed || typeof parsed !== 'object') return;
 
-    const evt = parsed as Partial<PulseTokenEvent> & { event?: string };
+    const evt = parsed as { type?: string; event?: string; payload?: unknown };
 
     if (evt.event === 'pong') return;
 
     switch (evt.type) {
       case 'init':
       case 'sync': {
-        const list = Array.isArray(evt.data) ? evt.data : evt.data ? [evt.data] : [];
+        const list = this.extractFromSnapshot(evt.payload);
         logger.debug({ type: evt.type, count: list.length }, 'received view snapshot');
-        for (const item of list) this.emit('new', item);
+        for (const row of list) this.emit('snapshot', row);
         break;
       }
       case 'new-token': {
-        const item = Array.isArray(evt.data) ? evt.data[0] : evt.data;
-        if (item) this.emit('new', item);
+        const p = evt.payload as { token?: PulseTokenRow } | undefined;
+        if (p?.token && typeof p.token === 'object') {
+          logger.debug(
+            { symbol: p.token.symbol, chain: p.token.chainId },
+            'received new-token',
+          );
+          this.emit('new', p.token);
+        }
         break;
       }
       case 'update-token':
       case 'remove-token':
-        // not relevant for first-alert sniper
         break;
       default:
         logger.debug({ type: evt.type }, 'ignored pulse message');
