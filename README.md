@@ -120,19 +120,39 @@ Inline buttons:
 - **Trade on pump.fun / Swap on Jupiter / Swap on Uniswap** — direct link to
   the relevant DEX UI for that chain (no third-party trading bot)
 
-## Configuration
+## Environment variables
 
-All thresholds live in `.env` (see `.env.example`):
+Copy `.env.example` to `.env` and fill in the values.
+
+### Required
+
+| Variable | Example | Where to get it |
+|---|---|---|
+| `MOBULA_API_KEY` | `mob_xxxxxxxxxxxxxxxxxxxxxxxx` | <https://mobula.io> dashboard |
+| `TELEGRAM_BOT_TOKEN` | `123456:ABC-xxxxxxxxxxxxxxxxxxx` | [@BotFather](https://t.me/BotFather) → `/newbot` |
+| `TELEGRAM_CHAT_ID` | `123456789` | DM [@userinfobot](https://t.me/userinfobot), or read `chat.id` from `getUpdates` for a group |
+
+### Optional — subscription
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `WATCH_CHAINS` | `solana:solana,evm:8453,evm:1` | Mobula chain ids, comma-separated |
-| `WATCH_POOL_TYPES` | `pumpfun,moonshot-evm,raydium-v4,uniswap-v2,uniswap-v3` | DEX factories |
+| `WATCH_CHAINS` | `solana:solana,evm:8453,evm:1` | Mobula chain ids, comma-separated (`<ecosystem>:<id>`) |
+| `WATCH_POOL_TYPES` | `pumpfun,moonshot-evm,raydium-v4,uniswap-v2,uniswap-v3` | DEX factories to listen on |
+
+### Optional — quality gate
+
+| Variable | Default | Meaning |
+|---|---|---|
 | `MAX_AGE_SECONDS` | `60` | Reject tokens older than this in the client gate |
 | `MIN_LIQUIDITY_USD` | `2000` | Server-side `liquidity >= ...` filter |
 | `MAX_DEV_HOLDINGS` | `15` | Reject if dev wallet > X% of supply |
 | `MAX_SNIPERS_HOLDINGS` | `20` | Reject if sniper bots > X% of supply |
 | `MAX_TOP10_HOLDINGS` | `70` | Reject if top 10 wallets > X% combined |
+
+### Optional — runtime
+
+| Variable | Default | Meaning |
+|---|---|---|
 | `DB_PATH` | `./bot.db` | SQLite dedup file |
 | `LOG_LEVEL` | `info` | `debug` shows rejected tokens too |
 
